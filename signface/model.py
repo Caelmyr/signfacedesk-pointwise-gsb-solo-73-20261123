@@ -19,6 +19,8 @@ TOOLS = {
     "return": ("Relative return", "Compare supported brightness with two controls from the current capture."),
     "weak": ("Weak return patches", "Find connected weak patches and retain their measured footprints."),
     "contrast": ("Legibility contrast", "Compare marked letter and background luminance."),
+    "glyph": ("Glyph outline adoption", "Keep one of two candidate character outlines, preserving confirmed strokes."),
+    "edge": ("Glyph edge contrast", "Measure letter and background brightness along the adopted glyph edge."),
     "surface": ("Surface color", "Measure calibrated-plane Lab color on current observed pixels."),
     "glare": ("Exposure support", "Distinguish usable, clipped and unseen positions."),
     "coverage": ("Paired visibility", "Compare usable positions in two registered views."),

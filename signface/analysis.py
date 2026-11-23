@@ -182,6 +182,100 @@ def contrast(frame, domain, options, letter, background):
     )
 
 
+def draw_boundary(image, frame, coords, color=(1, 1, 1)):
+    polygon = np.rint(plane_points(frame, coords)).astype(np.int32)
+    cv.polylines(image, [polygon], True, color, 2, cv.LINE_AA)
+
+
+def glyph(frame, domain, options, letter, background):
+    """Adopt one of two candidate outlines drawn along a worn character.
+
+    Stroke evidence comes only from observed positions: clipped or unseen
+    positions inside an outline count as missing evidence, never as strokes.
+    A usable candidate keeps every confirmed stroke position and stays under
+    the marked background share limit. The adoption rule keeps the outline
+    with the least mixed background, then the most kept visible strokes.
+    """
+    signal = tone(frame)
+    letter_level = read_control(frame, signal, letter, "Letter face")
+    background_level = read_control(frame, signal, background, "Letter background")
+    if abs(letter_level - background_level) < .02:
+        raise Invalid("The letter and background marks do not have enough brightness separation.")
+    limit = number(options.get("max_background", .3), "background share limit", 0, .9)
+    support = observed(frame, domain)
+    confirmed = mask_for(frame, letter) & support
+    if not confirmed.any():
+        raise Invalid("The confirmed letter strokes have no observed positions in the inspected region.")
+    mid = (letter_level + background_level) / 2
+    letter_like = signal >= mid if letter_level >= background_level else signal < mid
+    strokes, ground = support & letter_like, support & ~letter_like
+    rows = []
+    for name, raw in (("A", "candidate_a"), ("B", "candidate_b")):
+        coords = points(options.get(raw), 3, 40, f"candidate outline {name}")
+        mask = mask_for(frame, {"points": coords}) & domain
+        kept = int((mask & strokes).sum())
+        mixed = int((mask & ground).sum())
+        share = mixed / max(1, kept + mixed)
+        rows.append({"candidate": name, "kept_strokes": kept, "mixed_background": mixed,
+                     "missing_positions": int((mask & ~support).sum()), "background_share": round(share, 4),
+                     "confirmed_preserved": bool(not (confirmed & ~mask).any()),
+                     "within_limit": bool(share <= limit), "adopted": False,
+                     "_share": share, "_mask": mask, "_points": coords})
+    usable = [row for row in rows if row["confirmed_preserved"] and row["within_limit"]]
+    if not usable:
+        reasons = "; ".join(
+            f"candidate {row['candidate']} " +
+            ("loses confirmed strokes" if not row["confirmed_preserved"]
+             else f"mixes {row['_share']:.3f} background over the {limit:g} limit")
+            for row in rows)
+        raise Invalid("No candidate outline is usable: " + reasons + ".")
+    chosen = min(usable, key=lambda row: (row["_share"], -row["kept_strokes"], row["candidate"]))
+    chosen["adopted"] = True
+    mask = chosen["_mask"]
+    kept_mask, mixed_mask, missing_mask = mask & strokes, mask & ground, mask & ~support
+    summary = {"adopted_candidate": chosen["candidate"],
+               "adoption_rule": "least mixed background, then most kept strokes",
+               "letter_luminance": round(letter_level, 5), "background_luminance": round(background_level, 5),
+               "kept_strokes": int(kept_mask.sum()), "mixed_background": int(mixed_mask.sum()),
+               "background_share": round(chosen["_share"], 4), "background_share_limit": limit,
+               "missing_positions": int(missing_mask.sum())}
+    image = render(frame, [(kept_mask, "good"), (mixed_mask, "other"), (missing_mask, "unknown")])
+    draw_boundary(image, frame, chosen["_points"])
+    table = [{key: value for key, value in row.items() if not key.startswith("_")} for row in rows]
+    return summary, table, image, chosen["_points"]
+
+
+def edge(frame, domain, options, adopted):
+    """Measure letter and background brightness inside a framed character edge.
+
+    The letter/background split follows the adopted glyph outline saved in the
+    earlier report. Clipped or unseen positions count as missing evidence and
+    enter neither side.
+    """
+    cut = mask_for(frame, {"points": adopted}) & domain
+    support = observed(frame, domain)
+    signal = tone(frame)
+    letter_mask = cut & support
+    ground_mask = domain & support & ~cut
+    missing = domain & ~support
+    letter_values, ground_values = signal[letter_mask], signal[ground_mask]
+    if letter_values.size < 12:
+        raise Invalid("The framed edge leaves fewer than 12 observed letter positions.")
+    if ground_values.size < 12:
+        raise Invalid("The framed edge leaves fewer than 12 observed background positions.")
+    left, right = float(np.median(letter_values)), float(np.median(ground_values))
+    ratio = abs(left - right) / max(left, right, 1e-6)
+    summary = {"letter_luminance": round(left, 5), "background_luminance": round(right, 5),
+               "relative_contrast": round(ratio, 5),
+               "polarity": "lighter lettering" if left > right else "darker lettering",
+               "letter_positions": int(letter_values.size), "background_positions": int(ground_values.size),
+               "missing_positions": int(missing.sum())}
+    rows = area_rows(frame, [("letter", letter_mask), ("background", ground_mask), ("unresolved", missing)])
+    image = render(frame, [(letter_mask, "good"), (ground_mask, "other"), (missing, "unknown")])
+    draw_boundary(image, frame, adopted)
+    return summary, rows, image
+
+
 def surface(frame, domain, options):
     support = observed(frame, domain)
     if support.sum() < 12:

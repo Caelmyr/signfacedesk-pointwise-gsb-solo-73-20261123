@@ -1,6 +1,6 @@
 # SignFace Desk
 
-A local survey workbench for photographs of existing wayfinding panels. Mark the photograph's measured plane before comparing positions. Workflows include plane registration, visible panel outline, finish-loss candidates, a measured luminance transect, same-exposure relative return, weak-return footprints, letter/background contrast, Lab color, exposure support, paired visibility and surface scuff candidates. Saved readings retain the source photographs, measurements and PNG overlay. Export a CSV or a ZIP with the source photos and verify the members on another local instance.
+A local survey workbench for photographs of existing wayfinding panels. Mark the photograph's measured plane before comparing positions. Workflows include plane registration, visible panel outline, finish-loss candidates, a measured luminance transect, same-exposure relative return, weak-return footprints, letter/background contrast, glyph outline adoption from two candidate character outlines, character-edge contrast along the adopted glyph, Lab color, exposure support, paired visibility and surface scuff candidates. Saved readings retain the source photographs, measurements and PNG overlay. Export a CSV or a ZIP with the source photos and verify the members on another local instance.
 
 ```sh
 docker compose up --build

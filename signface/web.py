@@ -63,7 +63,10 @@ def job_inputs(library, part, data):
 
 
 def perform(library, part, data):
+    if choice(data.get("mode"), TOOLS, "measurement") == "edge":
+        return perform_edge(library, part, data)
     mode, captures, frame, other, domain, marks, settings = job_inputs(library, part, data)
+    saved_options = settings
     if mode in ("return", "weak", "contrast"):
         first_purpose, second_purpose = ("letter", "background") if mode == "contrast" else ("reference", "dark")
         first = selected_mark(part, settings.get(first_purpose), first_purpose, True)
@@ -71,6 +74,15 @@ def perform(library, part, data):
         marks.update({first_purpose: first, second_purpose: second})
         measure = {"return": analysis.relative_return, "weak": analysis.weak_patches, "contrast": analysis.contrast}[mode]
         summary, rows, out = measure(frame, domain, settings, first, second)
+    elif mode == "glyph":
+        first = selected_mark(part, settings.get("letter"), "letter", True)
+        second = selected_mark(part, settings.get("background"), "background", True)
+        marks.update({"letter": first, "background": second})
+        summary, rows, out, adopted = analysis.glyph(frame, domain, settings, first, second)
+        marks["adopted"] = {"name": "Adopted glyph outline (candidate " + summary["adopted_candidate"] + ")",
+                            "purpose": "adopted", "points": adopted}
+        # Only the adopted outline stays in the report; rejected candidate geometry is not kept.
+        saved_options = {name: value for name, value in settings.items() if not name.startswith("candidate_")}
     elif mode == "coverage":
         summary, rows, out = analysis.coverage(frame, other, domain, settings)
     else:
@@ -79,7 +91,32 @@ def perform(library, part, data):
         summary, rows, out = measure(frame, domain, settings)
     return {"mode": mode, "title": TOOLS[mode][0], "source_part": part["name"], "lot": part["lot"],
             "plane_mm": [part["width_mm"], part["height_mm"]], "summary": summary, "rows": rows,
-            "image": library.put(preview(out)), "marks": marks, "captures": captures, "options": settings}
+            "image": library.put(preview(out)), "marks": marks, "captures": captures, "options": saved_options}
+
+
+def perform_edge(library, part, data):
+    """Frame a character edge on the photograph and outline stored in a glyph report."""
+    settings = opts(data.get("options", {}))
+    source = library.reading(settings.get("glyph", ""))
+    if source.get("part") != part["id"] or source.get("mode") != "glyph":
+        raise Invalid("Choose a glyph outline report saved for this sign.")
+    adopted = (source.get("marks") or {}).get("adopted")
+    if not isinstance(adopted, dict) or not adopted.get("points"):
+        raise Invalid("The chosen report does not hold an adopted glyph outline.")
+    capture = source["captures"][0]
+    if capture.get("corners") is None:
+        raise Invalid("The glyph report's photograph is no longer registered.")
+    if not data.get("region"):
+        raise Invalid("Frame the character edge with an inspection region mark.")
+    region = selected_mark(part, data.get("region"), "inspect", True)
+    excludes = [item for item in part["marks"] if item["purpose"] == "ignore"]
+    frame = capture_frame(library, part, capture)
+    domain = analysis.domain_for(frame, region, excludes)
+    summary, rows, out = analysis.edge(frame, domain, settings, adopted["points"])
+    marks = {"region": region, "exclusions": excludes, "adopted": adopted}
+    return {"mode": "edge", "title": TOOLS["edge"][0], "source_part": part["name"], "lot": part["lot"],
+            "plane_mm": [part["width_mm"], part["height_mm"]], "summary": summary, "rows": rows,
+            "image": library.put(preview(out)), "marks": marks, "captures": [capture], "options": settings}
 
 
 def install(app, root):

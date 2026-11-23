@@ -1,5 +1,5 @@
 const q = (selector, root = document) => root.querySelector(selector);
-const state = {parts: [], part: null, config: null, tab: 'Captures', mode: 'outline', capture: null, listing: [], result: null, marks: false, survey: []};
+const state = {parts: [], part: null, config: null, tab: 'Captures', mode: 'outline', capture: null, listing: [], result: null, marks: false, survey: [], candidates: {a: [], b: []}};
 const base = '/survey';
 const dialog = q('#dialog');
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch]));
@@ -118,6 +118,20 @@ function toolFields() {
   }
   if (toolMode === 'contrast') return chooseMarks('Letter face', 'letter', 'letter') +
     chooseMarks('Letter background', 'background', 'background');
+  if (toolMode === 'glyph') {
+    const count = which => '<small id="candidate-count-' + which + '">' +
+      (state.candidates[which].length ? state.candidates[which].length + ' points marked' : 'Not drawn') + '</small>';
+    return chooseMarks('Confirmed letter strokes', 'letter', 'letter') +
+      chooseMarks('Confirmed background', 'background', 'background') +
+      field('Background share limit', 'max_background', 'number', 'required min="0" max="0.9" step="0.01" value="0.3"') +
+      '<div class="action-row">' + btn('Draw candidate A', 'draw-candidate', 'data-which="a"') +
+      btn('Draw candidate B', 'draw-candidate', 'data-which="b"') + count('a') + count('b') + '</div>';
+  }
+  if (toolMode === 'edge') {
+    const reports = state.listing.filter(item => item.mode === 'glyph');
+    return select('Glyph report', 'glyph', [option('', 'Choose a saved glyph report', ''),
+      ...reports.map(item => option(item.id, item.title + ' · ' + (item.created_at || '').replace('T', ' '), ''))]);
+  }
   if (toolMode === 'profile') return btn('Mark transect', 'mark-survey') +
     '<small id="survey-count">' + state.survey.length + ' points marked</small>';
   return '';
@@ -128,8 +142,10 @@ function readingForm() {
   const opts = Object.entries(state.config.tools).map(([key, value]) => option(key, value[0], state.mode));
   const captions = list => list.map(item => option(item.id, item.name, state.capture));
   const pair = state.mode === 'coverage';
+  const fromReport = state.mode === 'edge';
   return '<section class="card"><h2>Measure inspection</h2><p>' + escapeHTML(tool(state.mode)[1]) + '</p><form class="form" id="reading-form">' +
-    select('Measurement', 'mode', opts) + select('Photograph', 'capture', captions(shots)) +
+    select('Measurement', 'mode', opts) +
+    (fromReport ? '<p>The photograph and glyph outline come from the saved report.</p>' : select('Photograph', 'capture', captions(shots))) +
     (pair ? select('Comparison photograph', 'other', [option('', 'Choose comparison', ''), ...captions(shots.filter(item => item.id !== state.capture))]) : '') +
     chooseMarks('Inspection region', 'region', 'inspect', 'Whole inspected plane') + toolFields() +
     '<button class="primary" type="submit"' + (shots.length ? '' : ' disabled') + '>Save measurement</button></form></section>';
@@ -180,6 +196,7 @@ async function loadPart(id, selected = null) {
   state.capture = part.captures.find(item => item.id === selected)?.id ?? part.captures[0]?.id ?? null;
   state.tab = 'Captures';
   state.survey = [];
+  state.candidates = {a: [], b: []};
   state.marks = false;
   state.result = null;
   state.listing = readings.items;
@@ -293,6 +310,17 @@ function measureRoute() {
   });
   const coords = drawing(captureImage(state.capture, 'plane'), 2, state.survey);
 }
+function drawCandidate(which) {
+  if (!state.capture) throw new Error('Add a photograph before drawing a candidate outline.');
+  const label = which.toUpperCase();
+  modal('Candidate outline ' + label, drawPanel('Mark the candidate outline in order, following the original character.'),
+    'Use this outline', async () => {
+      if (coords.length < 3) throw new Error('Mark at least three points for candidate ' + label + '.');
+      state.candidates[which] = coords.map(pair => [...pair]);
+      q('#candidate-count-' + which).textContent = coords.length + ' points marked';
+    });
+  const coords = drawing(captureImage(state.capture, 'plane'), 40, state.candidates[which]);
+}
 function verifyPacket() {
   modal('Verify an inspection packet', field('Inspection ZIP', 'file', 'file', 'required accept=".zip"'), 'Verify contents', async data => {
     const result = await api('/verify', 'POST', data);
@@ -306,6 +334,12 @@ async function measure(submit) {
   const options = {};
   for (const [key, value] of data) if (!names.includes(key)) options[key] = key === 'closed' ? true : value;
   if (args.mode === 'profile') options.points = state.survey;
+  if (args.mode === 'glyph') {
+    if (state.candidates.a.length < 3 || state.candidates.b.length < 3)
+      throw new Error('Draw both candidate outlines before saving.');
+    options.candidate_a = state.candidates.a;
+    options.candidate_b = state.candidates.b;
+  }
   const partID = state.part.id;
   const result = await api(partPath() + '/readings', 'POST', {...args, options, revision: state.part.revision});
   if (state.part?.id !== partID) return;
@@ -324,12 +358,13 @@ async function action(actionName, dataset) {
   } else if (actionName === 'register') register(id);
   else if (actionName === 'add-photo') addPhoto();
   else if (actionName === 'toggle-marks') { state.marks = !state.marks; render(); }
-  else if (actionName === 'pick-photo') { state.capture = id; state.survey = []; render(); }
+  else if (actionName === 'pick-photo') { state.capture = id; state.survey = []; state.candidates = {a: [], b: []}; render(); }
   else if (actionName === 'add-mark') addMark();
   else if (actionName === 'remove-mark') {
     modal('Remove this mark?', '<p>Earlier measurements retain a copy of the mark.</p>', 'Remove mark',
       async () => updatePart(await api(partPath() + '/marks/' + id, 'DELETE', {revision: state.part.revision})));
   } else if (actionName === 'mark-survey') measureRoute();
+  else if (actionName === 'draw-candidate') drawCandidate(dataset.which);
   else if (actionName === 'open-reading') { state.result = await api('/readings/' + id); render(); }
 }
 
@@ -354,11 +389,13 @@ document.addEventListener('change', event => {
   if (event.target.name === 'mode') {
     state.mode = event.target.value;
     state.survey = [];
+    state.candidates = {a: [], b: []};
     render();
   }
   if (event.target.name === 'capture' && event.target.value !== state.capture) {
     state.capture = event.target.value;
     state.survey = [];
+    state.candidates = {a: [], b: []};
     render();
   }
 });

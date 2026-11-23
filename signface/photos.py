@@ -78,7 +78,8 @@ def canvas(frame):
 def draw_mark(image, mark, label=False):
     h, w = image.shape[:2]
     coords = np.rint(np.asarray(mark["points"]) * [w - 1, h - 1]).astype(np.int32)
-    colors = {"reference": (.98, .88, .23), "dark": (.31, .77, 1.), "letter": (.45, .89, .64), "background": (.83, .63, .96), "ignore": (1., .42, .33)}
+    colors = {"reference": (.98, .88, .23), "dark": (.31, .77, 1.), "check": (.96, .62, .36),
+              "letter": (.45, .89, .64), "background": (.83, .63, .96), "ignore": (1., .42, .33)}
     color = colors.get(mark["purpose"], (.45, 1., .68))
     cv.polylines(image, [coords], True, color, 2, cv.LINE_AA)
     if label and len(coords):

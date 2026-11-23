@@ -100,6 +100,10 @@ class Library:
 
     def save(self, part, data):
         doc = {**data, "id": key(), "part": part["id"], "revision": part["revision"], "created_at": now()}
+        scale = doc.get("scale")
+        if isinstance(scale, dict):
+            scale["id"] = doc["id"]
+            doc["summary"]["scale_id"] = doc["id"]
         with self.connection(write=True) as con:
             live = self.load(con, "parts", part["id"])
             if live["revision"] != part["revision"]:

@@ -140,23 +140,6 @@ def holes(frame, domain, options):
     return {"candidate_finish_patches": len(rows)}, rows, image
 
 
-def relative_return(frame, domain, options, reference, dark):
-    scaled, lo, hi = region_levels(frame, reference, dark)
-    support = observed(frame, domain)
-    signal = scaled[support]
-    if not signal.size:
-        raise Invalid("The region contains no visible, unclipped reading positions.")
-    threshold = number(options.get("threshold", .62), "return threshold", .05, 1.5)
-    good = support & (scaled >= threshold)
-    weak = support & ~good
-    unknown = domain & ~support
-    metrics = area_rows(frame, [("at or above threshold", good), ("below threshold", weak), ("unresolved", unknown)])
-    quantiles = np.percentile(signal, [10, 50, 90]).round(4).tolist()
-    return {"p10_p50_p90": quantiles, "dark_level": round(lo, 5), "reference_level": round(hi, 5)}, metrics, render(
-        frame, [(good, "good"), (weak, "alert"), (unknown, "unknown")]
-    )
-
-
 def weak_patches(frame, domain, options, reference, dark):
     scaled, lo, hi = region_levels(frame, reference, dark)
     support = observed(frame, domain)

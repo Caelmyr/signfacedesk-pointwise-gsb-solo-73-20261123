@@ -47,6 +47,11 @@ def panel(role):
         draw.rounded_rectangle((575, 319, 632, 381), radius=16, fill=(23, 88, 105, 255))
         draw.rectangle((676, 331, 711, 394), fill=(253, 255, 251, 255))
         draw.rectangle((641, 353, 663, 398), fill=(0, 0, 0, 0))
+        # Side-specific return controls and known-good check film.
+        draw.rectangle((566, 371, 625, 399), fill=(20, 58, 74, 255))
+        draw.rectangle((633, 363, 700, 400), fill=(52, 156, 173, 255))
+        draw.rectangle((196, 363, 215, 397), fill=(27, 138, 159, 255))
+        draw.rectangle((703, 363, 722, 397), fill=(52, 156, 173, 255))
     return np.asarray(base)
 
 
@@ -87,6 +92,10 @@ def training(library):
         rectangle("Bottom film field", "inspect", (307, 316, 709, 405)),
         rectangle("Sound blue film", "reference", (111, 366, 181, 396)),
         rectangle("Dark return sample", "dark", (227, 367, 284, 396)),
+        rectangle("Left check film", "check", (196, 363, 215, 397)),
+        rectangle("Right sound film", "reference", (633, 363, 700, 400)),
+        rectangle("Right dark sample", "dark", (566, 371, 625, 399)),
+        rectangle("Right check film", "check", (703, 363, 722, 397)),
         rectangle("Light arrow", "letter", (525, 143, 567, 197)),
         rectangle("Blue background", "background", (571, 284, 683, 300)),
     ]

@@ -10,14 +10,15 @@ ROLES = {"day": "Daylight", "night": "Night return", "raking": "Raking light", "
 MARKS = {
     "inspect": "Inspection region", "ignore": "Exclude from readings",
     "reference": "Sound return reference", "dark": "Dark reference",
+    "check": "Known-good check film",
     "letter": "Letter face", "background": "Letter background",
 }
 TOOLS = {
     "outline": ("Panel outline", "Find the visible light-toned sign face against its backing."),
     "holes": ("Missing finish", "Read visible low-chroma patches against a colored field."),
     "profile": ("Luminance transect", "Read supported brightness along a marked line."),
-    "return": ("Relative return", "Compare supported brightness with two controls from the current capture."),
-    "weak": ("Weak return patches", "Find connected weak patches and retain their measured footprints."),
+    "return": ("Relative return", "Build and freeze a return scale from marked controls; known-good check film validates it without becoming a control."),
+    "weak": ("Weak return patches", "Reopen a frozen return scale inside a small window and keep the measured weak footprints."),
     "contrast": ("Legibility contrast", "Compare marked letter and background luminance."),
     "surface": ("Surface color", "Measure calibrated-plane Lab color on current observed pixels."),
     "glare": ("Exposure support", "Distinguish usable, clipped and unseen positions."),

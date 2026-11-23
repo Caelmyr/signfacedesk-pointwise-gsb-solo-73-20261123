@@ -112,9 +112,27 @@ function toolFields() {
   if (toolMode === 'holes') return field('Chroma limit', 'threshold', 'number', 'required min="1" max="100" step="1" value="14"') + area;
   if (toolMode === 'scuffs') return threshold('Local contrast', '.14') +
     field('Background radius (mm)', 'radius_mm', 'number', 'required min="1" max="100" step="1" value="14"') + area;
-  if (toolMode === 'return' || toolMode === 'weak') {
-    return chooseMarks('Sound return', 'reference', 'reference') + chooseMarks('Dark reference', 'dark', 'dark') +
-      threshold('Relative return threshold', '.62') + (toolMode === 'weak' ? area : '');
+  if (toolMode === 'return') {
+    const tolerance = (label, key) => field(label, key, 'number', 'required min=".001" max="1" step=".01" value=".15"');
+    const schemes = [['auto', 'Auto: check both, adopt one scale'], ['common', 'Common reference across the whole photo'],
+      ['split', 'Side-specific references; middle band left unresolved']];
+    return '<div class="field-group"><h3>Left controls</h3>' +
+      chooseMarks('Left sound return', 'reference', 'reference') + chooseMarks('Left dark reference', 'dark', 'dark') +
+      chooseMarks('Left known-good check film', 'check_left', 'check') + tolerance('Left check max deviation', 'tolerance_left') +
+      '</div><div class="field-group"><h3>Right controls</h3>' +
+      chooseMarks('Right sound return', 'reference_right', 'reference') + chooseMarks('Right dark reference', 'dark_right', 'dark') +
+      chooseMarks('Right known-good check film', 'check_right', 'check') + tolerance('Right check max deviation', 'tolerance_right') +
+      '</div>' + select('Scale scheme', 'scale_scheme', schemes.map(([value, label]) => option(value, label, 'auto'))) +
+      threshold('Relative return threshold', '.62');
+  }
+  if (toolMode === 'weak') {
+    const scales = state.listing.filter(item => item.mode === 'return' && item.scale);
+    const scaleOptions = [option('', 'Mark controls directly (no frozen scale)', ''),
+      ...scales.map(item => option(item.id, item.title + ' · rev ' + item.revision, ''))];
+    return '<div id="scale-fields">' + select('Frozen return scale', 'scale_reading', scaleOptions) + '</div>' +
+      '<div id="control-fields" hidden>' + chooseMarks('Sound return', 'reference', 'reference') +
+      chooseMarks('Dark reference', 'dark', 'dark') + '</div>' +
+      threshold('Relative return threshold', '.62') + area;
   }
   if (toolMode === 'contrast') return chooseMarks('Letter face', 'letter', 'letter') +
     chooseMarks('Letter background', 'background', 'background');
@@ -134,6 +152,24 @@ function readingForm() {
     chooseMarks('Inspection region', 'region', 'inspect', 'Whole inspected plane') + toolFields() +
     '<button class="primary" type="submit"' + (shots.length ? '' : ' disabled') + '>Save measurement</button></form></section>';
 }
+function scalePanel(scale) {
+  if (!scale) return '';
+  const checks = scale.checks?.length ? '<table><thead><tr><th>Check film</th><th>Observed</th><th>Max deviation</th><th>Actual deviation</th><th>Result</th></tr></thead><tbody>' +
+    scale.checks.map(row => '<tr><td>' + escapeHTML(row.name) + '</td><td>' + fmt(row.observed_return) + '</td><td>' +
+      fmt(row.tolerance) + '</td><td>' + fmt(row.deviation) + '</td><td>' + (row.passes ? 'Within tolerance' : 'Outside tolerance') + '</td></tr>').join('') +
+    '</tbody></table>' : '<p>No check film marked; the scale was not independently validated.</p>';
+  const candidates = scale.candidates?.length > 1 ? '<div class="table"><table><thead><tr><th>Scheme</th><th>Worst check deviation</th><th>Decision</th></tr></thead><tbody>' +
+    scale.candidates.map(candidate => '<tr><td>' + escapeHTML(title(candidate.scheme)) + '</td><td>' +
+      fmt(candidate.worst_deviation) + '</td><td>' + (candidate.accepted ? (candidate.scheme === scale.scheme ? 'Adopted' : 'Passed') : 'Failed check') +
+      '</td></tr>').join('') + '</tbody></table></div>' : '';
+  const gap = scale.gap ? '<p>Side-specific scale: the middle band at x ' + scale.gap.join(' to ') +
+    ' cannot be assigned to either side and stays unresolved.</p>' : '';
+  const range = scale.observed_range ? '<p>Observed scale range on this capture: ' +
+    Object.entries(scale.observed_range).map(([key, value]) => escapeHTML(key) + ' ' + fmt(value)).join(' · ') + '</p>' : '';
+  return '<div class="scale-panel"><h3>Frozen return scale · ' + escapeHTML(title(scale.scheme)) + '</h3>' +
+    gap + range + candidates + '<div class="table">' + checks + '</div>' +
+    '<p class="muted">Check film validates the scale but is never used as a control. Weak return windows reopen this frozen scale; later thresholds or measurements cannot change it.</p></div>';
+}
 function report(result) {
   if (!result) return '<section class="card"><h2>Measurement preview</h2>' + stageCapture() + '</section>';
   const link = '/readings/' + result.id;
@@ -142,6 +178,9 @@ function report(result) {
     '</small>' + escapeHTML(fmt(value)) + '</div>').join('');
   return '<section class="card"><h2>' + escapeHTML(result.title) + '</h2><p>Saved at revision ' + result.revision +
     ' · ' + escapeHTML(result.captures.map(item => item.name).join(' · ')) + '</p><div class="metrics">' + metrics + '</div>' +
+    scalePanel(result.scale) +
+    (result.summary.scale_source ? '<p class="muted">Weak patches read through the frozen scale from reading ' +
+      escapeHTML(result.summary.scale_source) + '.</p>' : '') +
     stage('<img src="' + base + link + '/image" alt="Measurement overlay">') + '<div class="table">' +
     (headers.length ? '<table><thead><tr>' + headers.map(key => '<th>' + escapeHTML(title(key)) + '</th>').join('') +
       '</tr></thead><tbody>' + result.rows.map(row => '<tr>' + headers.map(key => '<td>' + escapeHTML(key === 'outline' && Array.isArray(row[key]) ? row[key].length + ' boundary points' : fmt(row[key])) + '</td>').join('') +
@@ -360,6 +399,10 @@ document.addEventListener('change', event => {
     state.capture = event.target.value;
     state.survey = [];
     render();
+  }
+  if (event.target.name === 'scale_reading') {
+    const frozen = Boolean(event.target.value);
+    q('#control-fields').hidden = frozen;
   }
 });
 q('#new-part').onclick = () => guard(newPart);

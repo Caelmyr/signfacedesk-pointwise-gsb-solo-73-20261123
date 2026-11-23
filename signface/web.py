@@ -2,7 +2,7 @@ import io
 from flask import Blueprint, Response, jsonify, render_template, request, send_file
 from image_lab.validation import Conflict, Invalid
 
-from . import analysis, demo, evidence
+from . import analysis, demo, evidence, scales
 from .model import MARKS, ROLES, TOOLS, choice, locate, mark_fields, number, opts, part_fields
 from .photos import basename, canvas, decode, photograph, preview, raw_preview, registered_corners
 from .store import Library, key, now
@@ -62,24 +62,71 @@ def job_inputs(library, part, data):
     return mode, captures, frame, other, domain, mark_inputs, settings
 
 
+RETURN_MARK_FIELDS = (
+    ("reference", "reference", True), ("dark", "dark", True),
+    ("reference_right", "reference", False), ("dark_right", "dark", False),
+    ("check_left", "check", False), ("check_right", "check", False),
+)
+
+
+def scale_mark_inputs(part, settings):
+    marks = {}
+    for field_name, purpose, required in RETURN_MARK_FIELDS:
+        mark = selected_mark(part, settings.get(field_name), purpose, required)
+        if mark is not None:
+            marks[field_name] = mark
+    return marks
+
+
+def frozen_scale(library, part, capture_id, reading_id):
+    reading = library.reading(reading_id)
+    if reading.get("mode") != "return" or "scale" not in reading:
+        raise Invalid("Choose a saved Relative return reading that contains a frozen scale.")
+    if not any(capture["id"] == capture_id for capture in reading["captures"]):
+        raise Invalid("The saved scale belongs to a different photograph. Reopen it on its original capture.")
+    scale = reading["scale"]
+    return {**scale, "id": reading["id"], "reading_id": reading["id"]}
+
+
 def perform(library, part, data):
     mode, captures, frame, other, domain, marks, settings = job_inputs(library, part, data)
+    scale_doc = None
     if mode in ("return", "weak", "contrast"):
-        first_purpose, second_purpose = ("letter", "background") if mode == "contrast" else ("reference", "dark")
-        first = selected_mark(part, settings.get(first_purpose), first_purpose, True)
-        second = selected_mark(part, settings.get(second_purpose), second_purpose, True)
-        marks.update({first_purpose: first, second_purpose: second})
-        measure = {"return": analysis.relative_return, "weak": analysis.weak_patches, "contrast": analysis.contrast}[mode]
-        summary, rows, out = measure(frame, domain, settings, first, second)
+        if mode == "contrast":
+            first = selected_mark(part, settings.get("letter"), "letter", True)
+            second = selected_mark(part, settings.get("background"), "background", True)
+            marks.update({"letter": first, "background": second})
+            summary, rows, out = analysis.contrast(frame, domain, settings, first, second)
+        elif mode == "return":
+            scale_marks = scale_mark_inputs(part, settings)
+            marks.update(scale_marks)
+            scale = scales.build_scale(frame, settings, scale_marks)
+            summary, rows, out = scales.return_reading(frame, domain, settings, scale_marks, scale)
+            scale_doc = {**scale, "capture": captures[0]["id"]}
+        else:
+            scale_id = settings.get("scale_reading")
+            if scale_id:
+                frozen = frozen_scale(library, part, captures[0]["id"], scale_id)
+                minimum = number(settings.get("minimum_mm2", 30), "minimum marked area", 1, 100_000)
+                summary, rows, out = scales.weak_reading(frame, domain, settings, frozen, minimum)
+                marks["scale_reading"] = {"id": frozen["id"], "title": TOOLS["return"][0]}
+            else:
+                first = selected_mark(part, settings.get("reference"), "reference", True)
+                second = selected_mark(part, settings.get("dark"), "dark", True)
+                marks.update({"reference": first, "dark": second})
+                summary, rows, out = analysis.weak_patches(frame, domain, settings, first, second)
     elif mode == "coverage":
         summary, rows, out = analysis.coverage(frame, other, domain, settings)
     else:
         measure = {"outline": analysis.outline, "holes": analysis.holes, "profile": analysis.profile,
                    "surface": analysis.surface, "glare": analysis.glare, "scuffs": analysis.scuffs}[mode]
         summary, rows, out = measure(frame, domain, settings)
-    return {"mode": mode, "title": TOOLS[mode][0], "source_part": part["name"], "lot": part["lot"],
-            "plane_mm": [part["width_mm"], part["height_mm"]], "summary": summary, "rows": rows,
-            "image": library.put(preview(out)), "marks": marks, "captures": captures, "options": settings}
+    document = {"mode": mode, "title": TOOLS[mode][0], "source_part": part["name"], "lot": part["lot"],
+                "plane_mm": [part["width_mm"], part["height_mm"]], "summary": summary, "rows": rows,
+                "image": library.put(preview(out)), "marks": marks, "captures": captures, "options": settings}
+    if scale_doc is not None:
+        document["scale"] = scale_doc
+    return document
 
 
 def install(app, root):

@@ -1,0 +1,4 @@
+.signface/
+.venv/
+__pycache__/
+*.pyc

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SignFace Desk</title>
+  <link rel="stylesheet" href="/static/signface.css">
+</head>
+<body>
+  <header class="mast">
+    <a class="brand" href="/"><span class="mark-logo" aria-hidden="true">↗</span> SignFace Desk</a>
+    <a class="prepare" href="/prepare">Image preparation</a>
+    <button id="open-verify" class="ghost">Verify packet</button>
+    <button id="new-part" class="primary">New inspection</button>
+  </header>
+  <div class="shell">
+    <aside class="rail">
+      <div class="rail-title"><h2>Inspections</h2><span id="part-count"></span></div>
+      <div id="parts" class="stack"></div>
+      <button id="training" class="secondary">Load synthetic sample</button>
+    </aside>
+    <main>
+      <div id="workbench"></div>
+    </main>
+  </div>
+  <dialog id="dialog"></dialog>
+  <div id="toast" aria-live="polite" role="status" hidden></div>
+  <script type="module" src="/static/signface.js"></script>
+</body>
+</html>
